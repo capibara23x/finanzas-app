@@ -77,6 +77,12 @@ function App() {
     return categoriasGuardadas ? JSON.parse(categoriasGuardadas) : categoriasIniciales;
   });
 
+  const [metas, setMetas] = useState(() => {
+    const metasGuardadas = localStorage.getItem("metasAhorro");
+
+    return metasGuardadas ? JSON.parse(metasGuardadas) : [];
+  });
+
   const [pestanaActiva, setPestanaActiva] = useState("inicio");
   const [filtroReporte, setFiltroReporte] = useState("dia");
   const [tipo, setTipo] = useState("gasto");
@@ -90,6 +96,10 @@ function App() {
   const [filtroCuenta, setFiltroCuenta] = useState("todas");
   const [filtroTipo, setFiltroTipo] = useState("todos");
   const [filtroFecha, setFiltroFecha] = useState("");
+  const [nombreMeta, setNombreMeta] = useState("");
+  const [objetivoMeta, setObjetivoMeta] = useState("");
+  const [metaSeleccionadaId, setMetaSeleccionadaId] = useState("");
+  const [montoAhorro, setMontoAhorro] = useState("");
 
   useEffect(() => {
     localStorage.setItem("movimientos", JSON.stringify(movimientos));
@@ -98,6 +108,10 @@ function App() {
   useEffect(() => {
     localStorage.setItem("categorias", JSON.stringify(categorias));
   }, [categorias]);
+
+  useEffect(() => {
+    localStorage.setItem("metasAhorro", JSON.stringify(metas));
+  }, [metas]);
 
   const limpiarFormulario = () => {
     setTipo("gasto");
@@ -193,6 +207,44 @@ function App() {
     setFiltroFecha("");
   };
 
+  const agregarMeta = () => {
+    if (!nombreMeta.trim() || !objetivoMeta || Number(objetivoMeta) <= 0) return;
+
+    const nuevaMeta = {
+      id: Date.now(),
+      nombre: nombreMeta.trim(),
+      objetivo: Number(objetivoMeta),
+      ahorrado: 0,
+      fecha: new Date().toLocaleDateString(),
+    };
+
+    setMetas([nuevaMeta, ...metas]);
+    setNombreMeta("");
+    setObjetivoMeta("");
+    setMetaSeleccionadaId(String(nuevaMeta.id));
+  };
+
+  const registrarAhorro = () => {
+    if (!metaSeleccionadaId || !montoAhorro) return;
+
+    setMetas((metasActuales) =>
+      metasActuales.map((meta) =>
+        meta.id === Number(metaSeleccionadaId)
+          ? { ...meta, ahorrado: meta.ahorrado + Number(montoAhorro) }
+          : meta,
+      ),
+    );
+    setMontoAhorro("");
+  };
+
+  const eliminarMeta = (id) => {
+    setMetas((metasActuales) => metasActuales.filter((meta) => meta.id !== id));
+
+    if (metaSeleccionadaId === String(id)) {
+      setMetaSeleccionadaId("");
+    }
+  };
+
   const ingresos = movimientos
     .filter((m) => m.tipo === "ingreso")
     .reduce((acc, mov) => acc + mov.monto, 0);
@@ -282,7 +334,7 @@ function App() {
   return (
     <div className="min-h-screen bg-black p-4 text-white">
       <div className="max-w-md mx-auto pb-8">
-        <div className="bg-zinc-950 border border-zinc-800 rounded-3xl p-2 shadow-lg mb-5 grid grid-cols-2 gap-2">
+        <div className="bg-zinc-950 border border-zinc-800 rounded-3xl p-2 shadow-lg mb-5 grid grid-cols-3 gap-2">
           <button
             onClick={() => setPestanaActiva("inicio")}
             className={`py-3 rounded-2xl font-semibold transition ${
@@ -299,6 +351,15 @@ function App() {
             }`}
           >
             Reportes
+          </button>
+
+          <button
+            onClick={() => setPestanaActiva("metas")}
+            className={`py-3 rounded-2xl font-semibold transition ${
+              pestanaActiva === "metas" ? "bg-white text-black" : "bg-zinc-900 text-gray-300"
+            }`}
+          >
+            Metas
           </button>
         </div>
 
@@ -543,7 +604,7 @@ function App() {
               </div>
             </div>
           </>
-        ) : (
+        ) : pestanaActiva === "reportes" ? (
           <div className="space-y-5">
             <div className="bg-zinc-950 border border-zinc-800 rounded-3xl p-6 shadow-lg">
               <p className="text-gray-400 text-sm">Reporte de gastos</p>
@@ -681,6 +742,144 @@ function App() {
                   ))
                 )}
               </div>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-5">
+            <div className="bg-zinc-950 border border-zinc-800 rounded-3xl p-6 shadow-lg">
+              <p className="text-gray-400 text-sm">Metas de ahorro</p>
+              <h1 className="text-3xl font-bold mt-2">
+                {formatearDinero(metas.reduce((acc, meta) => acc + meta.ahorrado, 0))}
+              </h1>
+              <p className="text-gray-400 mt-1">Total acumulado entre todas tus metas</p>
+            </div>
+
+            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg">
+              <h2 className="text-xl font-bold mb-4">Nueva meta</h2>
+
+              <input
+                type="text"
+                placeholder="Nombre de la meta"
+                value={nombreMeta}
+                onChange={(e) => setNombreMeta(e.target.value)}
+                className="w-full bg-zinc-800 border border-zinc-700 text-white p-3 rounded-xl mb-3"
+              />
+
+              <input
+                type="number"
+                placeholder="Monto objetivo"
+                value={objetivoMeta}
+                onChange={(e) => setObjetivoMeta(e.target.value)}
+                className="w-full bg-zinc-800 border border-zinc-700 text-white p-3 rounded-xl mb-3"
+              />
+
+              <button
+                onClick={agregarMeta}
+                className="w-full bg-white text-black py-4 rounded-2xl font-semibold"
+              >
+                Crear meta
+              </button>
+            </div>
+
+            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg">
+              <h2 className="text-xl font-bold mb-4">Registrar ahorro</h2>
+
+              <select
+                value={metaSeleccionadaId}
+                onChange={(e) => setMetaSeleccionadaId(e.target.value)}
+                className="w-full bg-zinc-800 border border-zinc-700 text-white p-3 rounded-xl mb-3"
+              >
+                <option value="">Seleccionar meta</option>
+                {metas.map((meta) => (
+                  <option key={meta.id} value={meta.id}>
+                    {meta.nombre}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                type="number"
+                placeholder="Monto ahorrado"
+                value={montoAhorro}
+                onChange={(e) => setMontoAhorro(e.target.value)}
+                className="w-full bg-zinc-800 border border-zinc-700 text-white p-3 rounded-xl mb-3"
+              />
+
+              <button
+                onClick={registrarAhorro}
+                className="w-full bg-zinc-950 border border-zinc-700 text-white py-4 rounded-2xl font-semibold"
+              >
+                Sumar ahorro
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {metas.length === 0 ? (
+                <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl text-gray-400">
+                  Todavia no tienes metas de ahorro.
+                </div>
+              ) : (
+                metas.map((meta) => {
+                  const porcentaje =
+                    meta.objetivo > 0 ? Math.min((meta.ahorrado / meta.objetivo) * 100, 100) : 0;
+                  const faltante = Math.max(meta.objetivo - meta.ahorrado, 0);
+
+                  return (
+                    <div
+                      key={meta.id}
+                      className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg"
+                    >
+                      <div className="flex justify-between items-start gap-4">
+                        <div>
+                          <p className="text-xl font-bold">{meta.nombre}</p>
+                          <p className="text-gray-400 text-sm mt-1">
+                            Creada el {meta.fecha}
+                          </p>
+                        </div>
+
+                        <button
+                          onClick={() => eliminarMeta(meta.id)}
+                          className="bg-red-500/10 border border-red-500/30 text-red-300 px-3 py-2 rounded-xl text-sm font-semibold"
+                        >
+                          Eliminar
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 mt-5">
+                        <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-3">
+                          <p className="text-gray-400 text-sm">Ahorrado</p>
+                          <p className="text-green-400 font-bold mt-1">
+                            {formatearDinero(meta.ahorrado)}
+                          </p>
+                        </div>
+
+                        <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-3">
+                          <p className="text-gray-400 text-sm">Objetivo</p>
+                          <p className="font-bold mt-1">{formatearDinero(meta.objetivo)}</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-5">
+                        <div className="flex justify-between text-sm mb-2">
+                          <span className="text-gray-300">{porcentaje.toFixed(0)}%</span>
+                          <span className={faltante === 0 ? "text-green-400" : "text-gray-300"}>
+                            {faltante === 0
+                              ? "Meta completada"
+                              : `Faltan ${formatearDinero(faltante)}`}
+                          </span>
+                        </div>
+
+                        <div className="h-3 bg-zinc-800 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-green-500 rounded-full"
+                            style={{ width: `${porcentaje}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         )}
