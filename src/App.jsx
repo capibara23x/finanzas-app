@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-const categorias = [
+const categoriasIniciales = [
   "Comida",
   "Transporte",
   "Compras",
@@ -45,11 +45,36 @@ const obtenerInicioPeriodo = (filtro, fechaBase = new Date()) => {
   return inicioDelDia(fechaBase);
 };
 
+const obtenerFechaInput = (movimiento) => {
+  const fecha = obtenerFechaMovimiento(movimiento);
+  const year = fecha.getFullYear();
+  const month = String(fecha.getMonth() + 1).padStart(2, "0");
+  const day = String(fecha.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const crearResumenCategorias = (movimientos) => {
+  const gastosPorCategoria = movimientos.reduce((acc, mov) => {
+    acc[mov.categoria] = (acc[mov.categoria] || 0) + mov.monto;
+    return acc;
+  }, {});
+
+  return Object.entries(gastosPorCategoria)
+    .map(([nombre, total]) => ({ nombre, total }))
+    .sort((a, b) => b.total - a.total);
+};
+
 function App() {
   const [movimientos, setMovimientos] = useState(() => {
     const datosGuardados = localStorage.getItem("movimientos");
 
     return datosGuardados ? JSON.parse(datosGuardados) : [];
+  });
+
+  const [categorias, setCategorias] = useState(() => {
+    const categoriasGuardadas = localStorage.getItem("categorias");
+
+    return categoriasGuardadas ? JSON.parse(categoriasGuardadas) : categoriasIniciales;
   });
 
   const [pestanaActiva, setPestanaActiva] = useState("inicio");
@@ -59,13 +84,51 @@ function App() {
   const [categoria, setCategoria] = useState("");
   const [cuenta, setCuenta] = useState("efectivo");
   const [nota, setNota] = useState("");
+  const [movimientoEditandoId, setMovimientoEditandoId] = useState(null);
+  const [nuevaCategoria, setNuevaCategoria] = useState("");
+  const [filtroCategoria, setFiltroCategoria] = useState("todas");
+  const [filtroCuenta, setFiltroCuenta] = useState("todas");
+  const [filtroTipo, setFiltroTipo] = useState("todos");
+  const [filtroFecha, setFiltroFecha] = useState("");
 
   useEffect(() => {
     localStorage.setItem("movimientos", JSON.stringify(movimientos));
   }, [movimientos]);
 
-  const agregarMovimiento = () => {
+  useEffect(() => {
+    localStorage.setItem("categorias", JSON.stringify(categorias));
+  }, [categorias]);
+
+  const limpiarFormulario = () => {
+    setTipo("gasto");
+    setMonto("");
+    setCategoria("");
+    setCuenta("efectivo");
+    setNota("");
+    setMovimientoEditandoId(null);
+  };
+
+  const guardarMovimiento = () => {
     if (!monto || !categoria) return;
+
+    if (movimientoEditandoId) {
+      setMovimientos((movimientosActuales) =>
+        movimientosActuales.map((mov) =>
+          mov.id === movimientoEditandoId
+            ? {
+                ...mov,
+                tipo,
+                monto: Number(monto),
+                categoria,
+                nota,
+                cuenta,
+              }
+            : mov,
+        ),
+      );
+      limpiarFormulario();
+      return;
+    }
 
     const fecha = new Date();
     const nuevoMovimiento = {
@@ -80,9 +143,54 @@ function App() {
     };
 
     setMovimientos([nuevoMovimiento, ...movimientos]);
-    setMonto("");
-    setCategoria("");
-    setNota("");
+    limpiarFormulario();
+  };
+
+  const editarMovimiento = (movimiento) => {
+    setMovimientoEditandoId(movimiento.id);
+    setTipo(movimiento.tipo);
+    setMonto(String(movimiento.monto));
+    setCategoria(movimiento.categoria);
+    setCuenta(movimiento.cuenta);
+    setNota(movimiento.nota || "");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const eliminarMovimiento = (id) => {
+    setMovimientos((movimientosActuales) => movimientosActuales.filter((mov) => mov.id !== id));
+
+    if (movimientoEditandoId === id) {
+      limpiarFormulario();
+    }
+  };
+
+  const agregarCategoria = () => {
+    const nombre = nuevaCategoria.trim();
+    if (!nombre) return;
+
+    const yaExiste = categorias.some((cat) => cat.toLowerCase() === nombre.toLowerCase());
+    if (yaExiste) {
+      setNuevaCategoria("");
+      return;
+    }
+
+    setCategorias([...categorias, nombre]);
+    setCategoria(nombre);
+    setNuevaCategoria("");
+  };
+
+  const eliminarCategoria = (nombre) => {
+    setCategorias((categoriasActuales) => categoriasActuales.filter((cat) => cat !== nombre));
+
+    if (categoria === nombre) setCategoria("");
+    if (filtroCategoria === nombre) setFiltroCategoria("todas");
+  };
+
+  const limpiarFiltrosHistorial = () => {
+    setFiltroCategoria("todas");
+    setFiltroCuenta("todas");
+    setFiltroTipo("todos");
+    setFiltroFecha("");
   };
 
   const ingresos = movimientos
@@ -103,10 +211,28 @@ function App() {
     .filter((m) => m.cuenta === "tarjeta")
     .reduce((acc, mov) => (mov.tipo === "ingreso" ? acc + mov.monto : acc - mov.monto), 0);
 
+  const movimientosFiltrados = useMemo(
+    () =>
+      movimientos.filter((mov) => {
+        const coincideCategoria = filtroCategoria === "todas" || mov.categoria === filtroCategoria;
+        const coincideCuenta = filtroCuenta === "todas" || mov.cuenta === filtroCuenta;
+        const coincideTipo = filtroTipo === "todos" || mov.tipo === filtroTipo;
+        const coincideFecha = !filtroFecha || obtenerFechaInput(mov) === filtroFecha;
+
+        return coincideCategoria && coincideCuenta && coincideTipo && coincideFecha;
+      }),
+    [movimientos, filtroCategoria, filtroCuenta, filtroTipo, filtroFecha],
+  );
+
   const reporte = useMemo(() => {
     const ahora = new Date();
     const inicioPeriodo = obtenerInicioPeriodo(filtroReporte, ahora);
     const inicioHoy = inicioDelDia(ahora);
+    const inicioMes = inicioDeMes(ahora);
+    const inicioSemanaActual = inicioDeSemana(ahora);
+    const inicioSemanaAnterior = new Date(inicioSemanaActual);
+    inicioSemanaAnterior.setDate(inicioSemanaAnterior.getDate() - 7);
+
     const gastosDelPeriodo = movimientos.filter((mov) => {
       const fecha = obtenerFechaMovimiento(mov);
       return mov.tipo === "gasto" && fecha >= inicioPeriodo && fecha <= ahora;
@@ -117,23 +243,38 @@ function App() {
       return mov.tipo === "gasto" && fecha >= inicioHoy && fecha <= ahora;
     });
 
+    const gastosDelMes = movimientos.filter((mov) => {
+      const fecha = obtenerFechaMovimiento(mov);
+      return mov.tipo === "gasto" && fecha >= inicioMes && fecha <= ahora;
+    });
+
+    const gastosSemanaActual = movimientos.filter((mov) => {
+      const fecha = obtenerFechaMovimiento(mov);
+      return mov.tipo === "gasto" && fecha >= inicioSemanaActual && fecha <= ahora;
+    });
+
+    const gastosSemanaAnterior = movimientos.filter((mov) => {
+      const fecha = obtenerFechaMovimiento(mov);
+      return mov.tipo === "gasto" && fecha >= inicioSemanaAnterior && fecha < inicioSemanaActual;
+    });
+
     const totalPeriodo = gastosDelPeriodo.reduce((acc, mov) => acc + mov.monto, 0);
     const totalHoy = gastosDeHoy.reduce((acc, mov) => acc + mov.monto, 0);
-
-    const gastosPorCategoria = gastosDelPeriodo.reduce((acc, mov) => {
-      acc[mov.categoria] = (acc[mov.categoria] || 0) + mov.monto;
-      return acc;
-    }, {});
-
-    const categoriasOrdenadas = Object.entries(gastosPorCategoria)
-      .map(([nombre, total]) => ({ nombre, total }))
-      .sort((a, b) => b.total - a.total);
+    const totalMes = gastosDelMes.reduce((acc, mov) => acc + mov.monto, 0);
+    const totalSemanaActual = gastosSemanaActual.reduce((acc, mov) => acc + mov.monto, 0);
+    const totalSemanaAnterior = gastosSemanaAnterior.reduce((acc, mov) => acc + mov.monto, 0);
+    const diferenciaSemanal = totalSemanaActual - totalSemanaAnterior;
+    const categoriasOrdenadas = crearResumenCategorias(gastosDelPeriodo);
+    const categoriasDelMes = crearResumenCategorias(gastosDelMes);
 
     return {
       movimientos: gastosDelPeriodo,
       totalPeriodo,
       totalHoy,
+      totalMes,
+      diferenciaSemanal,
       categoriaPrincipal: categoriasOrdenadas[0],
+      categoriaPrincipalMes: categoriasDelMes[0],
       categoriasOrdenadas,
     };
   }, [movimientos, filtroReporte]);
@@ -192,7 +333,20 @@ function App() {
             </div>
 
             <div className="bg-zinc-900 rounded-3xl p-5 shadow-lg mt-5 border border-zinc-800">
-              <h2 className="text-xl font-bold mb-4">Nuevo movimiento</h2>
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <h2 className="text-xl font-bold">
+                  {movimientoEditandoId ? "Editar movimiento" : "Nuevo movimiento"}
+                </h2>
+
+                {movimientoEditandoId && (
+                  <button
+                    onClick={limpiarFormulario}
+                    className="bg-zinc-800 border border-zinc-700 text-gray-200 px-3 py-2 rounded-xl text-sm"
+                  >
+                    Cancelar
+                  </button>
+                )}
+              </div>
 
               <select
                 value={tipo}
@@ -236,6 +390,22 @@ function App() {
                 ))}
               </div>
 
+              <div className="grid grid-cols-[1fr_auto] gap-2 mb-3">
+                <input
+                  type="text"
+                  placeholder="Nueva categoria"
+                  value={nuevaCategoria}
+                  onChange={(e) => setNuevaCategoria(e.target.value)}
+                  className="min-w-0 bg-zinc-800 border border-zinc-700 text-white p-3 rounded-xl"
+                />
+                <button
+                  onClick={agregarCategoria}
+                  className="bg-zinc-950 border border-zinc-700 text-white px-4 rounded-xl font-semibold"
+                >
+                  Agregar
+                </button>
+              </div>
+
               <textarea
                 placeholder="Nota opcional"
                 value={nota}
@@ -244,40 +414,129 @@ function App() {
               />
 
               <button
-                onClick={agregarMovimiento}
+                onClick={guardarMovimiento}
                 className="w-full bg-white text-black py-4 rounded-2xl font-semibold"
               >
-                Guardar movimiento
+                {movimientoEditandoId ? "Guardar cambios" : "Guardar movimiento"}
               </button>
             </div>
 
+            <div className="bg-zinc-900 rounded-3xl p-5 shadow-lg mt-5 border border-zinc-800">
+              <h2 className="text-xl font-bold mb-4">Categorias</h2>
+
+              <div className="flex flex-wrap gap-2">
+                {categorias.map((cat) => (
+                  <div
+                    key={cat}
+                    className="bg-zinc-950 border border-zinc-800 rounded-full pl-4 pr-2 py-2 flex items-center gap-2"
+                  >
+                    <span className="text-sm">{cat}</span>
+                    <button
+                      onClick={() => eliminarCategoria(cat)}
+                      className="bg-zinc-800 text-gray-300 rounded-full px-2 text-sm"
+                      aria-label={`Eliminar ${cat}`}
+                    >
+                      x
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="mt-6">
-              <h2 className="text-xl font-bold mb-3">Historial</h2>
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <h2 className="text-xl font-bold">Historial</h2>
+                <button
+                  onClick={limpiarFiltrosHistorial}
+                  className="bg-zinc-900 border border-zinc-800 text-gray-300 rounded-xl px-3 py-2 text-sm"
+                >
+                  Limpiar
+                </button>
+              </div>
+
+              <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-4 mb-4 grid grid-cols-2 gap-3">
+                <select
+                  value={filtroCategoria}
+                  onChange={(e) => setFiltroCategoria(e.target.value)}
+                  className="bg-zinc-800 border border-zinc-700 text-white p-3 rounded-xl"
+                >
+                  <option value="todas">Categoria</option>
+                  {categorias.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={filtroCuenta}
+                  onChange={(e) => setFiltroCuenta(e.target.value)}
+                  className="bg-zinc-800 border border-zinc-700 text-white p-3 rounded-xl"
+                >
+                  <option value="todas">Cuenta</option>
+                  <option value="efectivo">Efectivo</option>
+                  <option value="tarjeta">Tarjeta</option>
+                </select>
+
+                <select
+                  value={filtroTipo}
+                  onChange={(e) => setFiltroTipo(e.target.value)}
+                  className="bg-zinc-800 border border-zinc-700 text-white p-3 rounded-xl"
+                >
+                  <option value="todos">Tipo</option>
+                  <option value="gasto">Gasto</option>
+                  <option value="ingreso">Ingreso</option>
+                </select>
+
+                <input
+                  type="date"
+                  value={filtroFecha}
+                  onChange={(e) => setFiltroFecha(e.target.value)}
+                  className="bg-zinc-800 border border-zinc-700 text-white p-3 rounded-xl"
+                />
+              </div>
 
               <div className="space-y-3">
-                {movimientos.length === 0 ? (
+                {movimientosFiltrados.length === 0 ? (
                   <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl text-gray-400">
-                    Todavia no hay movimientos.
+                    No hay movimientos con esos filtros.
                   </div>
                 ) : (
-                  movimientos.map((mov) => (
+                  movimientosFiltrados.map((mov) => (
                     <div
                       key={mov.id}
-                      className="bg-zinc-900 p-4 rounded-2xl shadow-lg flex justify-between items-center border border-zinc-800"
+                      className="bg-zinc-900 p-4 rounded-2xl shadow-lg border border-zinc-800"
                     >
-                      <div>
-                        <p className="font-bold">{mov.categoria}</p>
-                        <p className="text-gray-400 text-sm">{mov.nota || mov.cuenta}</p>
-                        <p className="text-gray-500 text-xs mt-1">{mov.fecha}</p>
+                      <div className="flex justify-between items-start gap-4">
+                        <div>
+                          <p className="font-bold">{mov.categoria}</p>
+                          <p className="text-gray-400 text-sm">{mov.nota || mov.cuenta}</p>
+                          <p className="text-gray-500 text-xs mt-1">{mov.fecha}</p>
+                        </div>
+
+                        <p
+                          className={`font-bold whitespace-nowrap ${
+                            mov.tipo === "ingreso" ? "text-green-500" : "text-red-500"
+                          }`}
+                        >
+                          {mov.tipo === "ingreso" ? "+" : "-"} {formatearDinero(mov.monto)}
+                        </p>
                       </div>
 
-                      <p
-                        className={`font-bold ${
-                          mov.tipo === "ingreso" ? "text-green-500" : "text-red-500"
-                        }`}
-                      >
-                        {mov.tipo === "ingreso" ? "+" : "-"} {formatearDinero(mov.monto)}
-                      </p>
+                      <div className="grid grid-cols-2 gap-2 mt-4">
+                        <button
+                          onClick={() => editarMovimiento(mov)}
+                          className="bg-zinc-800 border border-zinc-700 text-white py-2 rounded-xl font-semibold"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          onClick={() => eliminarMovimiento(mov.id)}
+                          className="bg-red-500/10 border border-red-500/30 text-red-300 py-2 rounded-xl font-semibold"
+                        >
+                          Eliminar
+                        </button>
+                      </div>
                     </div>
                   ))
                 )}
@@ -290,6 +549,44 @@ function App() {
               <p className="text-gray-400 text-sm">Reporte de gastos</p>
               <h1 className="text-3xl font-bold mt-2">{formatearDinero(reporte.totalPeriodo)}</h1>
               <p className="text-gray-400 mt-1">Total gastado segun el filtro seleccionado</p>
+            </div>
+
+            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg">
+              <h2 className="text-xl font-bold mb-4">Resumen del mes</h2>
+
+              <div className="space-y-3">
+                <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-4">
+                  <p className="text-gray-400 text-sm">Este mes gastaste</p>
+                  <p className="text-2xl font-bold text-red-400 mt-1">
+                    {formatearDinero(reporte.totalMes)}
+                  </p>
+                </div>
+
+                <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-4">
+                  <p className="text-gray-400 text-sm">Tu mayor gasto fue</p>
+                  <p className="text-2xl font-bold mt-1">
+                    {reporte.categoriaPrincipalMes?.nombre || "Sin gastos"}
+                  </p>
+                  <p className="text-red-400 font-semibold mt-1">
+                    {formatearDinero(reporte.categoriaPrincipalMes?.total || 0)}
+                  </p>
+                </div>
+
+                <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-4">
+                  <p className="text-gray-400 text-sm">
+                    {reporte.diferenciaSemanal >= 0
+                      ? "Gastaste mas que la semana pasada"
+                      : "Gastaste menos que la semana pasada"}
+                  </p>
+                  <p
+                    className={`text-2xl font-bold mt-1 ${
+                      reporte.diferenciaSemanal >= 0 ? "text-red-400" : "text-green-400"
+                    }`}
+                  >
+                    {formatearDinero(Math.abs(reporte.diferenciaSemanal))}
+                  </p>
+                </div>
+              </div>
             </div>
 
             <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg">
